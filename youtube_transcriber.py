@@ -4,7 +4,6 @@ from google.cloud import speech_v1p1beta1 as speech
 from pydub import AudioSegment
 import io
 import time
-from pytubefix import YouTube
 
 # ============================================
 # SET YOUR GOOGLE CREDENTIALS PATH HERE
@@ -15,7 +14,7 @@ GOOGLE_CREDENTIALS_PATH = "C:/Users/aryap/Downloads/credentials.json"  # Update 
 def extract_audio(youtube_url, output_path="audio.wav", compress=False):
     """
     Extract audio from YouTube video and convert to WAV format
-    Uses pytubefix instead of yt-dlp
+    Uses yt-dlp for better reliability on cloud servers
     
     Args:
         youtube_url: URL of the YouTube video
@@ -29,20 +28,38 @@ def extract_audio(youtube_url, output_path="audio.wav", compress=False):
         print(f"[>>] Downloading audio from: {youtube_url}")
         print("This may take a few minutes...")
         
-        # Download video using pytubefix (without progress callback to avoid encoding issues)
-        yt = YouTube(youtube_url)
+        import yt_dlp
         
-        # Get audio stream
-        audio_stream = yt.streams.filter(only_audio=True).first()
-        
-        if not audio_stream:
-            raise Exception("No audio stream found")
+        # yt-dlp options for audio download
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': 'temp_audio.%(ext)s',
+            'quiet': False,
+            'no_warnings': False,
+            'extract_audio': True,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'wav',
+            }],
+        }
         
         print("[!] Downloading... please wait...")
         
-        # Download to temp file (without progress bar to avoid Windows encoding issues)
-        temp_file = audio_stream.download(filename="temp_audio.mp4")
-        duration = yt.length
+        # Download with yt-dlp
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=True)
+            duration = info.get('duration', 0)
+            
+            # Find the downloaded file
+            temp_file = None
+            for ext in ['wav', 'm4a', 'webm', 'mp4', 'mp3']:
+                potential_file = f'temp_audio.{ext}'
+                if os.path.exists(potential_file):
+                    temp_file = potential_file
+                    break
+        
+        if not temp_file or not os.path.exists(temp_file):
+            raise Exception("Downloaded file not found")
         
         print("[OK] Download complete!")
         print("[!] Converting audio format...")
@@ -59,7 +76,7 @@ def extract_audio(youtube_url, output_path="audio.wav", compress=False):
         
         audio.export(output_path, format="wav")
         
-        # Clean up temp file
+        # Clean up temp files
         if os.path.exists(temp_file):
             os.remove(temp_file)
         
@@ -130,9 +147,6 @@ def transcribe_google_stt(audio_path, language_code="ta-IN"):
         # Always use Cloud Storage for safety (videos are usually > 1 min)
         print(f"\n[!] Using Google Cloud Storage for transcription...")
         print("This is required for videos longer than 1 minute.")
-        # Always use Cloud Storage for safety (videos are usually > 1 min)
-        print(f"\n[!] Using Google Cloud Storage for transcription...")
-        print("This is required for videos longer than 1 minute.")
         
         try:
             from google.cloud import storage
@@ -198,7 +212,7 @@ def transcribe_google_stt(audio_path, language_code="ta-IN"):
         print(f"[ERR] Error transcribing audio: {e}")
         print("\nTroubleshooting:")
         print("1. Make sure packages are installed:")
-        print("   pip install google-cloud-speech google-cloud-storage pytubefix pydub")
+        print("   pip install google-cloud-speech google-cloud-storage yt-dlp pydub")
         print("2. For files over 10MB, Cloud Storage is required")
         print("3. Enable both APIs: Speech-to-Text AND Cloud Storage")
         print("4. Make sure you have billing enabled")
@@ -323,7 +337,7 @@ def main():
         print("                    te-IN (Telugu), ml-IN (Malayalam), etc.")
         print("  --compress      : Compress audio to stay under 10MB (lower quality)")
         print("\nSetup Required:")
-        print("  1. Install: pip install google-cloud-speech google-cloud-storage pytubefix pydub")
+        print("  1. Install: pip install google-cloud-speech google-cloud-storage yt-dlp pydub")
         print("  2. Create Google Cloud project")
         print("  3. Enable Speech-to-Text API AND Cloud Storage API")
         print("  4. Download credentials JSON")
@@ -351,10 +365,14 @@ def main():
     print(f"Language: {language_code}")
     
     # Set Google credentials
-    # Check for JSON string in environment variable (for cloud deployment)
-    credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-    if credentials_json:
-        # Write the JSON string to a temporary file
+    # First, check for secret file (most secure - Render)
+    secret_file_path = "/etc/secrets/credentials.json"
+    if os.path.exists(secret_file_path):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = secret_file_path
+        print(f"[OK] Using credentials from secret file")
+    # Second, check for JSON string in environment variable (backup method)
+    elif os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"):
+        credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
         import json
         import tempfile
         credentials_dict = json.loads(credentials_json)
