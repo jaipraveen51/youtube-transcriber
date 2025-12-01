@@ -37,11 +37,20 @@ def extract_audio(youtube_url, output_path="audio.wav", compress=False):
             'quiet': False,
             'no_warnings': False,
             'extract_audio': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'referer': 'https://www.youtube.com/',
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'player_skip': ['webpage', 'configs'],
+                }
+            },
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'wav',
             }],
         }
+
         
         print("[!] Downloading... please wait...")
         
